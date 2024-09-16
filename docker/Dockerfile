@@ -28,10 +28,10 @@ ENV BENCHMARK_RUNNING_IN_DOCKER=True
 RUN groupadd --gid 1000 opensearch-benchmark && \
     useradd -d /opensearch-benchmark -m -k /dev/null -g 1000 -N -u 1000 -l -s /bin/bash benchmark
 
-WORKDIR /opensearch-benchmark
+RUN mkdir /opensearch-benchmark/.benchmark && \
+    chown 1000:1000 /opensearch-benchmark/.benchmark
 
-RUN mkdir -p /opensearch-benchmark/.benchmark && \
-    chown -R 1000:0 /opensearch-benchmark/.benchmark
+WORKDIR /opensearch-benchmark
 
 COPY --from=build-stage /opensearch-benchmark/dist/*.whl ./
 
