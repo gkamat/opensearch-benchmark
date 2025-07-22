@@ -577,6 +577,8 @@ class SearchParamSource(ParamSource):
         request_params = params.get("request-params", {})
         response_compression_enabled = params.get("response-compression-enabled", True)
         with_point_in_time_from = params.get("with-point-in-time-from", None)
+        profile_metrics = params.get("profile-metrics", None)
+        profile_metrics_sample_size = params.get("profile-metrics-sample-size", 0)
 
         self.query_params = {
             "index": target_name,
@@ -599,6 +601,9 @@ class SearchParamSource(ParamSource):
             self.query_params["results-per-page"] = results_per_page
         if with_point_in_time_from:
             self.query_params["with-point-in-time-from"] = with_point_in_time_from
+        if profile_metrics:
+            self.query_params["profile-metrics"] = profile_metrics
+            self.query_params["profile-metrics-sample-size"] = profile_metrics_sample_size
         if "assertions" in params:
             if not detailed_results:
                 # for paginated queries the value does not matter because detailed results are always retrieved.
