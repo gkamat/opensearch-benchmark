@@ -22,6 +22,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import threading
 import collections
 import copy
 import inspect
@@ -31,6 +32,7 @@ import numbers
 import operator
 import random
 import time
+import multiprocessing
 from abc import ABC, abstractmethod
 from enum import Enum
 from typing import List, Dict, Any, Optional, Tuple
@@ -50,6 +52,11 @@ __PARAM_SOURCES_BY_NAME = {}
 __STANDARD_VALUE_SOURCES = {}
 __STANDARD_VALUES = {}
 __QUERY_RANDOMIZATION_INFOS = {}
+
+class DataStreamingLock:
+    lock = multiprocessing.Lock()
+    count = multiprocessing.Value('i', 0)
+
 
 def param_source_for_operation(op_type, workload, params, task_name):
     try:
@@ -625,6 +632,7 @@ class IndexIdConflict(Enum):
     SequentialConflicts = 1
     RandomConflicts = 2
 
+import traceback
 
 class BulkIndexParamSource(ParamSource):
     def __init__(self, workload, params, **kwargs):
@@ -804,6 +812,7 @@ class PartitionBulkIndexParamSource:
                                                self.pipeline, self.original_params, self.create_reader)
 
         all_bulks = number_of_bulks(self.corpora, start_index, end_index, self.total_partitions, self.bulk_size)
+        all_bulks = 1000000000
         self.total_bulks = math.ceil((all_bulks * self.ingest_percentage) / 100)
 
     @property
@@ -1758,16 +1767,21 @@ class Slice:
         self.current_line = 0
         self.bulk_size = None
         self.logger = logging.getLogger(__name__)
+        self.files = [ f"/home/ec2-user/.osb/benchmarks/data/http_logs/chunks/chunk-{i:04d}" for i in range(637) ]
+        self.files = [ f"/home/ec2-user/.osb/benchmarks/data/big5/chunks/chunk-{i:04d}" for i in range(2047) ]
 
     def open(self, file_name, mode, bulk_size):
         self.bulk_size = bulk_size
         self.source = self.source_class(file_name, mode).open()
+        print(threading.get_native_id())
         self.logger.info("Will read [%d] lines from [%s] starting from line [%d] with bulk size [%d].",
                          self.number_of_lines, file_name, self.offset, self.bulk_size)
         start = time.perf_counter()
         io.skip_lines(file_name, self.source, self.offset)
         end = time.perf_counter()
         self.logger.debug("Skipping [%d] lines took [%f] s.", self.offset, end - start)
+        self.mode = mode
+        self._open_next()
         return self
 
     def close(self):
@@ -1777,7 +1791,35 @@ class Slice:
     def __iter__(self):
         return self
 
+    def _open_next(self):
+        with DataStreamingLock.lock:
+            f_id = DataStreamingLock.count.value
+            if f_id >= len(self.files):
+                return False
+            DataStreamingLock.count.value += 1
+        self.fd = self.source_class(self.files[f_id], self.mode).open()
+        print(threading.get_native_id(), "OPENING", self.files[f_id])
+        return True
+
+    def _fill_bulk(self):
+        want = self.bulk_size
+        rsl = list()
+        while want > 0:
+            lines = self.fd.readlines(want)
+            rsl.extend(lines)
+            n = len(lines)
+            if n < want:
+                if not self._open_next():
+                    if n == 0:
+                        raise StopIteration()
+                    else:
+                        return rsl
+            want -= n
+        return rsl
+
     def __next__(self):
+        return self._fill_bulk()
+
         if self.current_line >= self.number_of_lines:
             raise StopIteration()
         else:
