@@ -1296,27 +1296,25 @@ class WorkerCoordinator:
 
     def update_progress_message(self, task_finished=False):
         if not self.quiet and self.current_step >= 0:
-            is_bulk = False
             tasks = ",".join([t.name for t in self.tasks_per_join_point[self.current_step]])
-            if len(self.tasks_per_join_point[self.current_step]) == 1:
-                task = set(self.tasks_per_join_point[self.current_step]).pop()
-                is_bulk = task.operation.type == 'bulk'
 
-            if task_finished and not is_bulk:
-                total_progress = 1.0
-            else:
-                # we only count clients which actually contribute to progress. If clients are executing tasks eternally in a parallel
-                # structure, we should not count them. The reason is that progress depends entirely on the client(s) that execute the
-                # task that is completing the parallel structure.
-                progress_per_client = [s.task_progress
-                                       for s in self.most_recent_sample_per_client.values() if s.task_progress is not None]
+            # we only count clients which actually contribute to progress. If clients are executing tasks eternally in a parallel
+            # structure, we should not count them. The reason is that progress depends entirely on the client(s) that execute the
+            # task that is completing the parallel structure.
+            progress_per_client = [s.task_progress
+                                   for s in self.most_recent_sample_per_client.values() if s.task_progress is not None]
 
-                num_clients = max(len(progress_per_client), 1)
-                progress_per_client = [p[0] for p in progress_per_client]
-                total_progress = sum(progress_per_client) / num_clients
-            if is_bulk:
+            num_clients = len(progress_per_client)
+            assert num_clients > 0, "Number of clients is 0"
+            total_progress = sum([p[0] for p in progress_per_client]) / num_clients
+            units = set(progress_per_client)
+            assert len(units) == 1, "Encountered mix of disparate units while tracking task progress"
+            unit = units.pop()
+            if unit != '%':
                 self.progress_publisher.print("Running %s" % tasks, "[%4.1f GB]" % total_progress)
             else:
+                if task_finished:
+                    total_progress = 1.0
                 self.progress_publisher.print("Running %s" % tasks, "[%3d%% done]" % (round(total_progress * 100)))
             if task_finished:
                 self.progress_publisher.finish()
